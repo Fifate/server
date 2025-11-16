@@ -28,6 +28,7 @@ use crate::domain::shared::Language;
 use crate::domain::song::{LocalizedTitle, Song, SongCredit};
 use crate::domain::song_lyrics::SongLyrics;
 use crate::infra::database::sea_orm::cache::LANGUAGE_CACHE;
+use super::filter::SongFilter;
 
 pub(super) async fn find_by_id<R>(
     repo: &R,
@@ -64,6 +65,18 @@ where
                 .binary(SimilarityDistance, search_term),
         );
 
+    find_many_impl(select, repo.conn()).await
+}
+
+pub(super) async fn find_by_filter<R>(
+    repo: &R,
+    filter: SongFilter,
+) -> Result<Vec<Song>, DbErr>
+where
+    R: Connection,
+    R::Conn: ConnectionTrait,
+{
+    let select: Select<song::Entity> = filter.into_select();
     find_many_impl(select, repo.conn()).await
 }
 

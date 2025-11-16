@@ -1,4 +1,5 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
+use axum_extra::extract::Query;
 use libfp::BifunctorExt;
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
@@ -10,6 +11,7 @@ use crate::adapter::inbound::rest::data;
 use crate::adapter::inbound::rest::state::{self, ArcAppState};
 use crate::domain::song::Song;
 use crate::infra::error::Error;
+use super::SongFilter;
 
 const TAG: &str = "Song";
 
@@ -17,6 +19,7 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
     OpenApiRouter::new()
         .routes(routes!(find_song_by_id))
         .routes(routes!(find_song_by_keyword))
+        .routes(routes!(find_song_by_filter))
 }
 
 data! {
@@ -62,4 +65,23 @@ async fn find_song_by_keyword(
     super::repo::find_by_keyword(&repo, &query.keyword)
         .await
         .bimap_into()
+}
+
+#[utoipa::path(
+    get,
+    tag = TAG,
+    path = "/song/filter",
+    params(SongFilter),
+    responses(
+        (status = 200, body = DataVecSong),
+        Error
+    ),
+)]
+async fn find_song_by_filter(
+    State(repo): State<state::SeaOrmRepository>,
+    Query(query): Query<SongFilter>,
+) -> Result<Data<Vec<Song>>, Error> {
+    // 打印收到的查询参数，便于调试
+    tracing::info!(?query, "find_song_by_filter: incoming query");
+    super::repo::find_by_filter(&repo, query).await.bimap_into()
 }
