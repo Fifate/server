@@ -36,25 +36,18 @@ impl SongFilter {
 
         // 排除部分
         if let Some(exclusion) = &self.exclusion {
-            if !exclusion.is_empty() {
-                select = select
-                    .filter(song::Column::Id.is_not_in(exclusion.clone()));
-            }
+            select =
+                select.filter(song::Column::Id.is_not_in(exclusion.clone()));
         }
 
         // 艺术家过滤：通过 EXISTS 子查询匹配 song_artist 关系，避免联接重复
         if let Some(artist_ids) = &self.artist_ids {
-            if !artist_ids.is_empty() {
-                select = Self::apply_artist_filter(select, artist_ids.clone());
-            }
+            select = Self::apply_artist_filter(select, artist_ids.clone());
         }
 
         // 语言过滤：通过 EXISTS 子查询匹配 song_language 关系
         if let Some(language_ids) = &self.language_ids {
-            if !language_ids.is_empty() {
-                select =
-                    Self::apply_language_filter(select, language_ids.clone());
-            }
+            select = Self::apply_language_filter(select, language_ids.clone());
         }
 
         select
