@@ -6,12 +6,12 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::SongFilter;
 use crate::adapter::inbound::rest::api_response::Data;
 use crate::adapter::inbound::rest::data;
 use crate::adapter::inbound::rest::state::{self, ArcAppState};
 use crate::domain::song::Song;
 use crate::infra::error::Error;
-use super::SongFilter;
 
 const TAG: &str = "Song";
 

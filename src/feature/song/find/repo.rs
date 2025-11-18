@@ -19,6 +19,7 @@ use sea_query::extension::postgres::PgBinOper::{
 use sea_query::{ExprTrait, Func};
 use tokio::try_join;
 
+use super::filter::SongFilter;
 use crate::domain::Connection;
 use crate::domain::artist::SimpleArtist;
 use crate::domain::credit_role::CreditRoleRef;
@@ -28,7 +29,6 @@ use crate::domain::shared::Language;
 use crate::domain::song::{LocalizedTitle, Song, SongCredit};
 use crate::domain::song_lyrics::SongLyrics;
 use crate::infra::database::sea_orm::cache::LANGUAGE_CACHE;
-use super::filter::SongFilter;
 
 pub(super) async fn find_by_id<R>(
     repo: &R,

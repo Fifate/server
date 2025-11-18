@@ -1,9 +1,11 @@
 use entity::{song, song_artist, song_language};
-use sea_orm::{ColumnTrait, QueryFilter, Select, EntityTrait, QuerySelect, QueryTrait};
-use sea_query::{Expr};
+use sea_orm::{
+    ColumnTrait, EntityTrait, QueryFilter, QuerySelect, QueryTrait, Select,
+};
+use sea_query::Expr;
 use serde::Deserialize;
+use serde_with::{DisplayFromStr, OneOrMany, serde_as};
 use utoipa::{IntoParams, ToSchema};
-use serde_with::{serde_as, DisplayFromStr, OneOrMany};
 
 /// 可扩展的歌曲筛选器
 /// 目前先实现按艺术家进行筛选，后续可以扩展更多维度（风格、情感、语言、用户标签等）。
@@ -35,7 +37,8 @@ impl SongFilter {
         // 排除部分
         if let Some(exclusion) = &self.exclusion {
             if !exclusion.is_empty() {
-                select = select.filter(song::Column::Id.is_not_in(exclusion.clone()));
+                select = select
+                    .filter(song::Column::Id.is_not_in(exclusion.clone()));
             }
         }
 
@@ -49,7 +52,8 @@ impl SongFilter {
         // 语言过滤：通过 EXISTS 子查询匹配 song_language 关系
         if let Some(language_ids) = &self.language_ids {
             if !language_ids.is_empty() {
-                select = Self::apply_language_filter(select, language_ids.clone());
+                select =
+                    Self::apply_language_filter(select, language_ids.clone());
             }
         }
 
@@ -74,7 +78,10 @@ impl SongFilter {
         select: Select<song::Entity>,
         language_ids: Vec<i32>,
     ) -> Select<song::Entity> {
-        Self::apply_relation_filter::<song_language::Entity, song_language::Column>(
+        Self::apply_relation_filter::<
+            song_language::Entity,
+            song_language::Column,
+        >(
             select,
             language_ids,
             song_language::Column::SongId,
@@ -108,19 +115,21 @@ impl SongFilter {
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::{QueryTrait, QuerySelect};
+    use sea_orm::{QuerySelect, QueryTrait};
+
     use super::SongFilter;
 
     #[test]
     fn artist_filter_into_select_query_sql() {
         let filter = SongFilter {
-            artist_ids: Some(vec![1,2,3]),
+            artist_ids: Some(vec![1, 2, 3]),
             exclusion: None,
             language_ids: None,
         };
 
         // 仅选择常量以简化断言
-        let query: sea_orm::Select<entity::song::Entity> = filter.into_select().select_only().expr(1);
+        let query: sea_orm::Select<entity::song::Entity> =
+            filter.into_select().select_only().expr(1);
         let sql = query.build(sea_orm::DatabaseBackend::Postgres).to_string();
         println!("{}", sql);
         let expected = "SELECT 1 FROM \"song\" WHERE EXISTS(SELECT 1 FROM \"song_artist\" WHERE \"song_artist\".\"song_id\" = \"song\".\"id\" AND \"song_artist\".\"artist_id\" IN (1, 2, 3))";
@@ -133,11 +142,12 @@ mod tests {
         let filter = SongFilter {
             artist_ids: None,
             exclusion: None,
-            language_ids: Some(vec![1,2]),
+            language_ids: Some(vec![1, 2]),
         };
 
         // 仅选择常量以简化断言
-        let query: sea_orm::Select<entity::song::Entity> = filter.into_select().select_only().expr(1);
+        let query: sea_orm::Select<entity::song::Entity> =
+            filter.into_select().select_only().expr(1);
         let sql = query.build(sea_orm::DatabaseBackend::Postgres).to_string();
         println!("{}", sql);
         let expected = "SELECT 1 FROM \"song\" WHERE EXISTS(SELECT 1 FROM \"song_language\" WHERE \"song_language\".\"song_id\" = \"song\".\"id\" AND \"song_language\".\"language_id\" IN (1, 2))";
@@ -148,13 +158,14 @@ mod tests {
     #[test]
     fn combined_artist_and_language_filter_into_select_query_sql() {
         let filter = SongFilter {
-            artist_ids: Some(vec![4,5]),
+            artist_ids: Some(vec![4, 5]),
             exclusion: None,
             language_ids: Some(vec![3]),
         };
 
         // 仅选择常量以简化断言
-        let query: sea_orm::Select<entity::song::Entity> = filter.into_select().select_only().expr(1);
+        let query: sea_orm::Select<entity::song::Entity> =
+            filter.into_select().select_only().expr(1);
         let sql = query.build(sea_orm::DatabaseBackend::Postgres).to_string();
         println!("{}", sql);
         let expected = "SELECT 1 FROM \"song\" WHERE EXISTS(SELECT 1 FROM \"song_artist\" WHERE \"song_artist\".\"song_id\" = \"song\".\"id\" AND \"song_artist\".\"artist_id\" IN (4, 5)) AND EXISTS(SELECT 1 FROM \"song_language\" WHERE \"song_language\".\"song_id\" = \"song\".\"id\" AND \"song_language\".\"language_id\" IN (3))";
@@ -171,7 +182,8 @@ mod tests {
         };
 
         // 仅选择常量以简化断言
-        let query: sea_orm::Select<entity::song::Entity> = filter.into_select().select_only().expr(1);
+        let query: sea_orm::Select<entity::song::Entity> =
+            filter.into_select().select_only().expr(1);
         let sql = query.build(sea_orm::DatabaseBackend::Postgres).to_string();
         println!("{}", sql);
         let expected = "SELECT 1 FROM \"song\"";
