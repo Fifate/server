@@ -97,7 +97,7 @@ impl SongFilter {
             .select_only()
             .expr(1)
             .filter(Expr::eq(
-                Expr::col((E::default(), song_id_column.clone())),
+                Expr::col((E::default(), song_id_column)),
                 Expr::col((song::Entity, song::Column::Id)),
             ))
             .filter(target_id_column.is_in(ids));
