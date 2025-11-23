@@ -51,7 +51,10 @@ impl SongFilter {
             .select_only()
             .expr(1)
             .filter(Expr::eq(
-                Expr::col((song_language::Entity, song_language::Column::SongId)),
+                Expr::col((
+                    song_language::Entity,
+                    song_language::Column::SongId,
+                )),
                 Expr::col((song::Entity, song::Column::Id)),
             ))
             .filter(song_language::Column::LanguageId.is_in(language_ids));
