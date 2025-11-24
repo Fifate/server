@@ -60,7 +60,10 @@ pub(super) fn conv_to_domain_model(
             &related.credit_roles,
         ),
         events: conv_events(related.events.get(index).map_or(&[], |v| v)),
-        cover_art_url: related.cover_arts.get(index).and_then(|opt| opt.clone())
+        cover_art_url: related
+            .cover_arts
+            .get(index)
+            .and_then(|opt| opt.clone())
             .map(domain::image::Image::from)
             .map(|image| image.url()),
     }

@@ -2,7 +2,7 @@ use entity::release;
 use entity::sea_orm_active_enums::ReleaseType;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Select};
 use serde::Deserialize;
-use serde_with::{serde_as, OneOrMany};
+use serde_with::{OneOrMany, serde_as};
 use utoipa::{IntoParams, ToSchema};
 
 /// 发行版筛选器
@@ -23,7 +23,9 @@ impl ReleaseFilter {
 
         // 发行类型过滤
         if let Some(release_types) = &self.release_types {
-            select = select.filter(release::Column::ReleaseType.is_in(release_types.clone()));
+            select = select.filter(
+                release::Column::ReleaseType.is_in(release_types.clone()),
+            );
         }
 
         select
@@ -32,10 +34,10 @@ impl ReleaseFilter {
 
 #[cfg(test)]
 mod tests {
+    use entity::sea_orm_active_enums::ReleaseType;
     use sea_orm::{QuerySelect, QueryTrait};
 
     use super::ReleaseFilter;
-    use entity::sea_orm_active_enums::ReleaseType;
 
     #[test]
     fn release_type_filter_into_select_query_sql() {
