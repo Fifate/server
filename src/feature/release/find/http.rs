@@ -5,6 +5,7 @@ use utoipa::IntoParams;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::ReleaseFilter;
 use super::repo::{self, Filter};
 use crate::adapter::inbound::rest::api_response::Data;
 use crate::adapter::inbound::rest::data;
@@ -23,6 +24,7 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
     OpenApiRouter::new()
         .routes(routes!(find_release_by_id))
         .routes(routes!(find_release_by_keyword))
+        .routes(routes!(find_release_by_filter))
 }
 
 #[utoipa::path(
@@ -61,6 +63,26 @@ async fn find_release_by_keyword(
     Query(query): Query<KwQuery>,
 ) -> Result<Data<Vec<Release>>, Error> {
     repo::find_many(&repo, Filter::Keyword(query.keyword))
+        .await
+        .bimap_into()
+}
+
+#[utoipa::path(
+    get,
+    tag = TAG,
+    path = "/release/filter",
+    params(ReleaseFilter),
+    responses(
+        (status = 200, body = DataVecRelease),
+        Error,
+    ),
+)]
+async fn find_release_by_filter(
+    State(repo): State<state::SeaOrmRepository>,
+    Query(filter): Query<ReleaseFilter>,
+) -> Result<Data<Vec<Release>>, Error> {
+    let release_types = filter.release_types.unwrap_or_default();
+    repo::find_many(&repo, Filter::ReleaseTypes(release_types))
         .await
         .bimap_into()
 }

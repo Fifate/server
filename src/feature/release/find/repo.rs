@@ -14,6 +14,7 @@ use crate::infra::database::sea_orm::release::impls::find_many_impl;
 pub enum Filter {
     Id(i32),
     Keyword(String),
+    ReleaseTypes(Vec<entity::sea_orm_active_enums::ReleaseType>),
 }
 
 pub(crate) async fn find_one<R>(
@@ -71,5 +72,7 @@ fn filter_into_select(filter: Filter) -> Select<release::Entity> {
                         .binary(PgBinOper::SimilarityDistance, search_term),
                 )
         }
+        Filter::ReleaseTypes(release_types) => release::Entity::find()
+            .filter(release::Column::ReleaseType.is_in(release_types)),
     }
 }
