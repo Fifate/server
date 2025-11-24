@@ -1,4 +1,5 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
+use axum_extra::extract::Query;
 use libfp::BifunctorExt;
 use serde::Deserialize;
 use utoipa::IntoParams;
