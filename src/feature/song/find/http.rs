@@ -81,7 +81,7 @@ async fn find_song_by_filter(
     State(repo): State<state::SeaOrmRepository>,
     Query(query): Query<SongFilter>,
 ) -> Result<Data<Vec<Song>>, Error> {
-    // 打印收到的查询参数，便于调试
-    tracing::info!(?query, "find_song_by_filter: incoming query");
-    super::repo::find_by_filter(&repo, query).await.bimap_into()
+    let normalized = query.with_sort_defaults();
+    tracing::info!(?normalized, "find_song_by_filter: incoming query");
+    super::repo::find_by_filter(&repo, normalized).await.bimap_into()
 }
