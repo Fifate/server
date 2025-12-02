@@ -3,12 +3,12 @@ use sea_orm::{
     ColumnTrait, EntityTrait, QueryFilter, QuerySelect, QueryTrait, Select,
 };
 use sea_query::Expr;
-use serde::Deserialize;
-use serde_with::{DisplayFromStr, OneOrMany, serde_as};
+use serde::{Deserialize, Serialize};
+use serde_with::{OneOrMany, serde_as};
 use utoipa::{IntoParams, ToSchema};
 
 /// 排序字段枚举
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SortField {
     /// 按创建时间排序
@@ -18,7 +18,7 @@ pub enum SortField {
 }
 
 /// 排序方向枚举
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SortDirection {
     /// 升序排序
@@ -29,17 +29,17 @@ pub enum SortDirection {
 
 /// 可扩展的歌曲筛选器
 #[serde_as]
-#[derive(Clone, Debug, Default, Deserialize, ToSchema, IntoParams)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToSchema, IntoParams)]
 #[schema(as = SongFilter)]
 pub struct SongFilter {
-    /// 排除的歌曲ID
-    #[serde(default, alias = "exclusion[]")]
-    #[serde_as(as = "Option<OneOrMany<DisplayFromStr>>")]
-    pub exclusion: Option<Vec<i32>>,
-
     /// 语言ID集合，匹配歌曲的语言
-    #[serde(default, rename = "language_id", alias = "language_id[]")]
-    #[serde_as(as = "Option<OneOrMany<DisplayFromStr>>")]
+    #[serde(
+        default,
+        rename = "language_id",
+        alias = "language_id[]",
+        alias = "language_ids",
+    )]
+    #[serde_as(as = "Option<OneOrMany<_, serde_with::formats::PreferOne>>")]
     pub language_ids: Option<Vec<i32>>,
 
     /// 排序字段
@@ -64,12 +64,6 @@ impl SongFilter {
     /// 将过滤器转换为 `Select<song::Entity>` 查询
     pub fn into_select(self) -> Select<song::Entity> {
         let mut select = song::Entity::find();
-
-        // 排除部分
-        if let Some(exclusion) = &self.exclusion {
-            select =
-                select.filter(song::Column::Id.is_not_in(exclusion.clone()));
-        }
 
         // 语言过滤：通过 EXISTS 子查询匹配 song_language 关系
         if let Some(language_ids) = &self.language_ids {
@@ -104,15 +98,12 @@ impl SongFilter {
 mod tests {
     use sea_orm::{QuerySelect, QueryTrait};
 
-    use crate::feature::song::find::filter::SortField;
-    use crate::feature::song::find::filter::SortDirection;
-
     use super::SongFilter;
+    use crate::feature::song::find::filter::{SortDirection, SortField};
 
     #[test]
     fn language_filter_into_select_query_sql() {
         let filter = SongFilter {
-            exclusion: None,
             language_ids: Some(vec![1, 2]),
             sort_field: None,
             sort_direction: None,
@@ -131,7 +122,6 @@ mod tests {
     #[test]
     fn empty_filters_into_select_query_sql() {
         let filter = SongFilter {
-            exclusion: None,
             language_ids: None,
             sort_field: None,
             sort_direction: None,
@@ -152,25 +142,26 @@ mod tests {
         // 测试排序字段序列化
         let field_json = serde_json::to_string(&SortField::CreatedAt).unwrap();
         assert_eq!(field_json, "\"created_at\"");
-        
+
         let field_json = serde_json::to_string(&SortField::HandledAt).unwrap();
         assert_eq!(field_json, "\"handled_at\"");
 
         // 测试排序方向序列化
-        let direction_json = serde_json::to_string(&SortDirection::Asc).unwrap();
+        let direction_json =
+            serde_json::to_string(&SortDirection::Asc).unwrap();
         assert_eq!(direction_json, "\"asc\"");
-        
-        let direction_json = serde_json::to_string(&SortDirection::Desc).unwrap();
+
+        let direction_json =
+            serde_json::to_string(&SortDirection::Desc).unwrap();
         assert_eq!(direction_json, "\"desc\"");
 
         // 测试完整过滤器序列化
         let filter = SongFilter {
-            exclusion: Some(vec![1, 2]),
             language_ids: Some(vec![3, 4]),
             sort_field: Some(SortField::CreatedAt),
             sort_direction: Some(SortDirection::Desc),
         };
-        
+
         let filter_json = serde_json::to_value(&filter).unwrap();
         assert_eq!(filter_json["sort_field"], "created_at");
         assert_eq!(filter_json["sort_direction"], "desc");
@@ -181,27 +172,26 @@ mod tests {
         // 测试排序字段反序列化
         let field: SortField = serde_json::from_str("\"created_at\"").unwrap();
         assert!(matches!(field, SortField::CreatedAt));
-        
+
         let field: SortField = serde_json::from_str("\"handled_at\"").unwrap();
         assert!(matches!(field, SortField::HandledAt));
 
         // 测试排序方向反序列化
         let direction: SortDirection = serde_json::from_str("\"asc\"").unwrap();
         assert!(matches!(direction, SortDirection::Asc));
-        
-        let direction: SortDirection = serde_json::from_str("\"desc\"").unwrap();
+
+        let direction: SortDirection =
+            serde_json::from_str("\"desc\"").unwrap();
         assert!(matches!(direction, SortDirection::Desc));
 
         // 测试完整过滤器反序列化
         let filter_json = r#"{
-            "exclusion": [1, 2],
             "language_ids": [3, 4],
             "sort_field": "handled_at",
             "sort_direction": "asc"
         }"#;
-        
+
         let filter: SongFilter = serde_json::from_str(filter_json).unwrap();
-        assert_eq!(filter.exclusion, Some(vec![1, 2]));
         assert_eq!(filter.language_ids, Some(vec![3, 4]));
         assert!(matches!(filter.sort_field, Some(SortField::HandledAt)));
         assert!(matches!(filter.sort_direction, Some(SortDirection::Asc)));
@@ -224,52 +214,60 @@ mod tests {
     #[test]
     fn sort_defaults_applied_when_missing_both() {
         let filter = SongFilter {
-            exclusion: None,
             language_ids: None,
             sort_field: None,
             sort_direction: None,
         };
         let normalized = filter.with_sort_defaults();
         assert!(matches!(normalized.sort_field, Some(SortField::CreatedAt)));
-        assert!(matches!(normalized.sort_direction, Some(SortDirection::Desc)));
+        assert!(matches!(
+            normalized.sort_direction,
+            Some(SortDirection::Desc)
+        ));
     }
 
     #[test]
     fn sort_defaults_direction_only() {
         let filter = SongFilter {
-            exclusion: None,
             language_ids: None,
             sort_field: None,
             sort_direction: Some(SortDirection::Asc),
         };
         let normalized = filter.with_sort_defaults();
         assert!(matches!(normalized.sort_field, Some(SortField::CreatedAt)));
-        assert!(matches!(normalized.sort_direction, Some(SortDirection::Asc)));
+        assert!(matches!(
+            normalized.sort_direction,
+            Some(SortDirection::Asc)
+        ));
     }
 
     #[test]
     fn sort_defaults_field_only() {
         let filter = SongFilter {
-            exclusion: None,
             language_ids: None,
             sort_field: Some(SortField::HandledAt),
             sort_direction: None,
         };
         let normalized = filter.with_sort_defaults();
         assert!(matches!(normalized.sort_field, Some(SortField::HandledAt)));
-        assert!(matches!(normalized.sort_direction, Some(SortDirection::Desc)));
+        assert!(matches!(
+            normalized.sort_direction,
+            Some(SortDirection::Desc)
+        ));
     }
 
     #[test]
     fn sort_no_change_when_both_present() {
         let filter = SongFilter {
-            exclusion: None,
             language_ids: None,
             sort_field: Some(SortField::CreatedAt),
             sort_direction: Some(SortDirection::Asc),
         };
         let normalized = filter.with_sort_defaults();
         assert!(matches!(normalized.sort_field, Some(SortField::CreatedAt)));
-        assert!(matches!(normalized.sort_direction, Some(SortDirection::Asc)));
+        assert!(matches!(
+            normalized.sort_direction,
+            Some(SortDirection::Asc)
+        ));
     }
 }

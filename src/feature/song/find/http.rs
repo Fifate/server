@@ -83,5 +83,7 @@ async fn find_song_by_filter(
 ) -> Result<Data<Vec<Song>>, Error> {
     let normalized = query.with_sort_defaults();
     tracing::info!(?normalized, "find_song_by_filter: incoming query");
-    super::repo::find_by_filter(&repo, normalized).await.bimap_into()
+    super::repo::find_by_filter(&repo, normalized)
+        .await
+        .bimap_into()
 }

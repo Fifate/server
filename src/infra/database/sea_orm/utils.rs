@@ -6,12 +6,43 @@ use sea_orm::prelude::Expr;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    IntoActiveModel, Iterable, PaginatorTrait, QueryFilter, TransactionTrait,
+    IntoActiveModel, Iterable, PaginatorTrait, QueryFilter, QueryOrder,
+    TransactionTrait,
 };
 
 use crate::constant::ADMIN_USERNAME;
 use crate::domain::auth::hash_password;
 use crate::domain::model::UserRoleEnum;
+
+#[derive(Clone, Copy)]
+pub enum CorrectionSortField {
+    CreatedAt,
+    HandledAt,
+}
+
+pub async fn correction_sorted_entity_ids(
+    db: &impl ConnectionTrait,
+    entity_type: entity::enums::EntityType,
+    sort_field: CorrectionSortField,
+    sort_direction: sea_orm::Order,
+) -> Result<Vec<i32>, DbErr> {
+    use entity::correction::Column;
+
+    let models: Vec<entity::correction::Model> =
+        entity::correction::Entity::find()
+            .filter(Column::EntityType.eq(entity_type))
+            .order_by(
+                match sort_field {
+                    CorrectionSortField::CreatedAt => Column::CreatedAt,
+                    CorrectionSortField::HandledAt => Column::HandledAt,
+                },
+                sort_direction,
+            )
+            .all(db)
+            .await?;
+
+    Ok(models.into_iter().map(|m| m.entity_id).collect())
+}
 
 async fn username_in_use(
     username: &str,

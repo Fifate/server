@@ -9,18 +9,18 @@ use entity::{
 };
 use itertools::{Itertools, izip};
 use libfp::FunctorExt;
+use sea_orm::prelude::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, LoaderTrait,
     QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationTrait, Select,
 };
-use sea_orm::prelude::Expr;
 use sea_query::extension::postgres::PgBinOper::{
     Similarity, SimilarityDistance,
 };
 use sea_query::{ExprTrait, Func};
 use tokio::try_join;
 
-use super::filter::{SongFilter, SortField, SortDirection};
+use super::filter::{SongFilter, SortDirection, SortField};
 use crate::domain::Connection;
 use crate::domain::artist::SimpleArtist;
 use crate::domain::credit_role::CreditRoleRef;
@@ -80,10 +80,16 @@ where
     // 如果有排序参数，先查询Correction记录进行排序
     if let Some(sort_field) = filter.sort_field {
         if let Some(sort_direction) = filter.sort_direction {
-            return find_sorted_by_correction(repo, filter, sort_field, sort_direction).await;
+            return find_sorted_by_correction(
+                repo,
+                filter,
+                sort_field,
+                sort_direction,
+            )
+            .await;
         }
     }
-    
+
     // 如果没有排序参数，保持原有行为
     let select: Select<song::Entity> = filter.into_select();
     find_many_impl(select, repo.conn()).await
@@ -358,31 +364,20 @@ where
     R: Connection,
     R::Conn: ConnectionTrait,
 {
-    use entity::correction::Column;
     use entity::enums::EntityType;
-    use sea_orm::QueryOrder;
 
-    // 查询所有entity_type为"Song"的Correction记录
-    let corrections = entity::correction::Entity::find()
-        .filter(Column::EntityType.eq(EntityType::Song))
-        .apply_if(filter.exclusion.clone(), |query, exclusion| {
-            query.filter(Column::EntityId.is_not_in(exclusion))
-        })
-        .order_by(match sort_field {
-            SortField::CreatedAt => Column::CreatedAt,
-            SortField::HandledAt => Column::HandledAt,
-        }, match sort_direction {
+    let entity_ids = crate::infra::database::sea_orm::utils::correction_sorted_entity_ids(
+        repo.conn(),
+        EntityType::Song,
+        match sort_field {
+            SortField::CreatedAt => crate::infra::database::sea_orm::utils::CorrectionSortField::CreatedAt,
+            SortField::HandledAt => crate::infra::database::sea_orm::utils::CorrectionSortField::HandledAt,
+        },
+        match sort_direction {
             SortDirection::Asc => sea_orm::Order::Asc,
             SortDirection::Desc => sea_orm::Order::Desc,
-        })
-        .all(repo.conn())
-        .await?;
-
-    // 获取排序后的entity_id列表
-    let entity_ids: Vec<i32> = corrections
-        .into_iter()
-        .map(|correction| correction.entity_id)
-        .collect();
+        },
+    ).await?;
 
     if entity_ids.is_empty() {
         return Ok(vec![]);
@@ -396,7 +391,10 @@ where
                 .select_only()
                 .expr(1)
                 .filter(Expr::eq(
-                    Expr::col((song_language::Entity, song_language::Column::SongId)),
+                    Expr::col((
+                        song_language::Entity,
+                        song_language::Column::SongId,
+                    )),
                     Expr::col((song::Entity, song::Column::Id)),
                 ))
                 .filter(song_language::Column::LanguageId.is_in(language_ids));
