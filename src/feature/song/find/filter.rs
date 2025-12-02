@@ -4,7 +4,7 @@ use sea_orm::{
 };
 use sea_query::Expr;
 use serde::{Deserialize, Serialize};
-use serde_with::{OneOrMany, serde_as};
+use serde_with::{DisplayFromStr, OneOrMany, serde_as};
 use utoipa::{IntoParams, ToSchema};
 
 /// 排序字段枚举
@@ -41,7 +41,7 @@ pub struct SongFilter {
         alias = "language_id[]",
         alias = "language_ids"
     )]
-    #[serde_as(as = "Option<OneOrMany<_, serde_with::formats::PreferOne>>")]
+    #[serde_as(as = "Option<OneOrMany<DisplayFromStr>>")]
     pub language_ids: Option<Vec<i32>>,
 
     /// 排序字段
