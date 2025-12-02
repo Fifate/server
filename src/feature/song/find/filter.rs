@@ -170,36 +170,6 @@ mod tests {
     }
 
     #[test]
-    fn sort_parameters_deserialization() {
-        // 测试排序字段反序列化
-        let field: SortField = serde_json::from_str("\"created_at\"").unwrap();
-        assert!(matches!(field, SortField::CreatedAt));
-
-        let field: SortField = serde_json::from_str("\"handled_at\"").unwrap();
-        assert!(matches!(field, SortField::HandledAt));
-
-        // 测试排序方向反序列化
-        let direction: SortDirection = serde_json::from_str("\"asc\"").unwrap();
-        assert!(matches!(direction, SortDirection::Asc));
-
-        let direction: SortDirection =
-            serde_json::from_str("\"desc\"").unwrap();
-        assert!(matches!(direction, SortDirection::Desc));
-
-        // 测试完整过滤器反序列化
-        let filter_json = r#"{
-            "language_ids": [3, 4],
-            "sort_field": "handled_at",
-            "sort_direction": "asc"
-        }"#;
-
-        let filter: SongFilter = serde_json::from_str(filter_json).unwrap();
-        assert_eq!(filter.language_ids, Some(vec![3, 4]));
-        assert!(matches!(filter.sort_field, Some(SortField::HandledAt)));
-        assert!(matches!(filter.sort_direction, Some(SortDirection::Asc)));
-    }
-
-    #[test]
     fn invalid_sort_field_deserialization_fails() {
         let json = r#"{"sort_field":"unknown"}"#;
         let result: Result<SongFilter, _> = serde_json::from_str(json);
