@@ -29,7 +29,9 @@ pub enum SortDirection {
 
 /// 可扩展的歌曲筛选器
 #[serde_as]
-#[derive(Clone, Debug, Default, Deserialize, Serialize, ToSchema, IntoParams)]
+#[derive(
+    Clone, Debug, Default, Deserialize, Serialize, ToSchema, IntoParams,
+)]
 #[schema(as = SongFilter)]
 pub struct SongFilter {
     /// 语言ID集合，匹配歌曲的语言
@@ -37,7 +39,7 @@ pub struct SongFilter {
         default,
         rename = "language_id",
         alias = "language_id[]",
-        alias = "language_ids",
+        alias = "language_ids"
     )]
     #[serde_as(as = "Option<OneOrMany<_, serde_with::formats::PreferOne>>")]
     pub language_ids: Option<Vec<i32>>,
