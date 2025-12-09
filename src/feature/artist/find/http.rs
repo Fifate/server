@@ -8,16 +8,19 @@ use utoipa_axum::routes;
 use super::repo::{self, CommonFilter, FindManyFilter};
 use crate::adapter::inbound::rest::api_response::Data;
 use crate::adapter::inbound::rest::state::ArcAppState;
-use crate::adapter::inbound::rest::{data, state};
+use crate::adapter::inbound::rest::{AppRouter, data, state};
 use crate::domain::artist::Artist;
 use crate::infra::error::Error;
 
 const TAG: &str = "Artist";
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
-    OpenApiRouter::new()
-        .routes(routes!(find_artist_by_id))
-        .routes(routes!(find_many_artist))
+    AppRouter::new()
+        .with_public(|r| {
+            r.routes(routes!(find_artist_by_id))
+                .routes(routes!(find_many_artist))
+        })
+        .finish()
 }
 
 data!(
@@ -34,7 +37,6 @@ data!(
     ),
     responses(
         (status = 200, body = DataOptionArtist),
-        Error
     ),
 )]
 async fn find_artist_by_id(
@@ -68,7 +70,6 @@ impl From<FindManyFilterDto> for FindManyFilter {
     ),
     responses(
         (status = 200, body = DataVecArtist),
-        Error
     ),
 )]
 async fn find_many_artist(

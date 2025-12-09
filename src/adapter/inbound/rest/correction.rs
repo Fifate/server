@@ -9,10 +9,10 @@ use super::extract::CurrentUser;
 use super::state::{
     ArcAppState, SeaOrmTxRepo, {self},
 };
+use crate::adapter::inbound::rest::AppRouter;
 use crate::adapter::inbound::rest::api_response::{
     Message, {self},
 };
-use crate::application;
 use crate::domain::TransactionManager;
 use crate::domain::correction::ApproveCorrectionContext;
 use crate::infra::error::Error;
@@ -20,7 +20,9 @@ use crate::infra::error::Error;
 const TAG: &str = "Correction";
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
-    OpenApiRouter::new().routes(routes!(handle_correction))
+    AppRouter::new()
+        .with_private(|r| r.routes(routes!(handle_correction)))
+        .finish()
 }
 
 #[derive(ToSchema, Deserialize)]
@@ -43,8 +45,6 @@ struct HandleCorrectionQuery {
     ),
 	responses(
 		(status = 200, body = Message),
-		(status = 401),
-		application::correction::Error
 	),
 )]
 // TODO: Better name

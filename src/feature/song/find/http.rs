@@ -1,5 +1,4 @@
-use axum::extract::{Path, State};
-use axum_extra::extract::Query;
+use axum::extract::{Path, Query, State};
 use libfp::BifunctorExt;
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
@@ -8,24 +7,28 @@ use utoipa_axum::routes;
 
 use super::SongFilter;
 use crate::adapter::inbound::rest::api_response::Data;
-use crate::adapter::inbound::rest::data;
 use crate::adapter::inbound::rest::state::{self, ArcAppState};
+use crate::adapter::inbound::rest::{AppRouter, data};
 use crate::domain::song::Song;
 use crate::infra::error::Error;
 
 const TAG: &str = "Song";
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
-    OpenApiRouter::new()
-        .routes(routes!(find_song_by_id))
-        .routes(routes!(find_song_by_keyword))
-        .routes(routes!(find_song_by_filter))
+    AppRouter::new()
+        .with_public(|r| {
+            r.routes(routes!(find_song_by_id))
+                .routes(routes!(find_song_by_keyword))
+                .routes(routes!(find_song_by_filter))
+        })
+        .finish()
 }
 
-data! {
-    DataOptionSong, Option<Song>
-    DataVecSong, Vec<Song>
-}
+ data! {
+     DataOptionSong, Option<Song>
+     DataVecSong, Vec<Song>
+ }
+
 
 #[utoipa::path(
     get,
@@ -33,7 +36,6 @@ data! {
     path = "/song/{id}",
     responses(
         (status = 200, body = DataOptionSong),
-        Error
     ),
 )]
 async fn find_song_by_id(
@@ -55,7 +57,6 @@ struct KwQuery {
     params(KwQuery),
     responses(
         (status = 200, body = DataVecSong),
-        Error
     ),
 )]
 async fn find_song_by_keyword(

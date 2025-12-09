@@ -8,6 +8,7 @@ use super::extract::CurrentUser;
 use super::state::{
     ArcAppState, {self},
 };
+use crate::adapter::inbound::rest::AppRouter;
 use crate::adapter::inbound::rest::api_response::Message;
 use crate::application::correction::NewCorrectionDto;
 use crate::application::event::{self, CreateError};
@@ -16,9 +17,12 @@ use crate::domain::event::NewEvent;
 const TAG: &str = "Event";
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
-    OpenApiRouter::new()
-        .routes(routes!(create_event))
-        .routes(routes!(upsert_event_correction))
+    AppRouter::new()
+        .with_private(|r| {
+            r.routes(routes!(create_event))
+                .routes(routes!(upsert_event_correction))
+        })
+        .finish()
 }
 
 #[utoipa::path(
@@ -28,8 +32,6 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
     request_body = NewCorrectionDto<NewEvent>,
     responses(
         (status = 200, body = Message),
-        (status = 401),
-        CreateError
     ),
 )]
 async fn create_event(
@@ -49,8 +51,6 @@ async fn create_event(
     request_body = NewEvent,
     responses(
         (status = 200, body = Message),
-        (status = 401),
-        event::UpsertCorrectionError
     ),
 )]
 async fn upsert_event_correction(

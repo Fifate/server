@@ -10,6 +10,7 @@ use super::extract::CurrentUser;
 use super::state::{
     ArcAppState, {self},
 };
+use crate::adapter::inbound::rest::AppRouter;
 use crate::adapter::inbound::rest::api_response::Message;
 use crate::application;
 use crate::application::correction::NewCorrectionDto;
@@ -22,10 +23,13 @@ type Service = state::ReleaseService;
 const TAG: &str = "Release";
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
-    OpenApiRouter::new()
-        .routes(routes!(create_release))
-        .routes(routes!(update_release))
-        .routes(routes!(upload_release_cover_art))
+    AppRouter::new()
+        .with_private(|r| {
+            r.routes(routes!(create_release))
+                .routes(routes!(update_release))
+                .routes(routes!(upload_release_cover_art))
+        })
+        .finish()
 }
 
 #[utoipa::path(
@@ -35,8 +39,6 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
     request_body = NewCorrectionDto<NewRelease>,
     responses(
 		(status = 200, body = Message),
-        (status = 401),
-		CreateError
     ),
 )]
 async fn create_release(
@@ -56,8 +58,6 @@ async fn create_release(
     request_body = NewCorrectionDto<NewRelease>,
     responses(
 		(status = 200, body = Message),
-        (status = 401),
-		UpsertCorrectionError
     ),
 )]
 async fn update_release(
@@ -90,8 +90,6 @@ pub struct ReleaseCoverArtFormData {
     request_body = ReleaseCoverArtFormData,
     responses(
         (status = 200, body = Message),
-        (status = 401),
-        application::release_image::Error
     )
 )]
 

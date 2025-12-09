@@ -10,17 +10,18 @@ use super::extract::CurrentUser;
 use super::state::{
     ArcAppState, AuthSession, {self},
 };
+use crate::adapter::inbound::rest::AppRouter;
 use crate::adapter::inbound::rest::api_response::{
     self, Data, IntoApiResponse, Message,
 };
 use crate::application::auth::{
-    AuthServiceTrait, SessionBackendError, SignInError, SignUpError,
+    AuthServiceTrait, SessionBackendError, SignInError,
 };
 use crate::application::user_image::{
     Error as UserImageError, UploadAvatar, UploadProfileBanner,
 };
 use crate::domain::auth::AuthCredential;
-use crate::domain::markdown::{self, Markdown};
+use crate::domain::markdown::Markdown;
 use crate::domain::user::UserProfile;
 use crate::feature::user::profile::{DataUserProfile, load_profile};
 use crate::infra::error::Error;
@@ -28,13 +29,15 @@ use crate::infra::error::Error;
 const TAG: &str = "User";
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
-    OpenApiRouter::new()
-        .routes(routes!(upload_profile_banner))
-        .routes(routes!(upload_avatar))
-        .routes(routes!(sign_out))
-        .routes(routes!(update_bio))
-        .routes(routes!(sign_in))
-        .routes(routes!(sign_up))
+    AppRouter::new()
+        .with_public(|r| r.routes(routes!(sign_in)).routes(routes!(sign_up)))
+        .with_private(|r| {
+            r.routes(routes!(upload_profile_banner))
+                .routes(routes!(upload_avatar))
+                .routes(routes!(sign_out))
+                .routes(routes!(update_bio))
+        })
+        .finish()
 }
 
 #[utoipa::path(
@@ -44,7 +47,6 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
     request_body = AuthCredential,
     responses(
         (status = 200, body = DataUserProfile),
-        SignUpError
     ),
 )]
 async fn sign_up(
@@ -73,8 +75,6 @@ async fn sign_up(
     request_body = AuthCredential,
     responses(
         (status = 200, body = DataUserProfile),
-        (status = 401),
-        SignInError,
     )
 )]
 async fn sign_in(
@@ -107,8 +107,6 @@ async fn sign_in(
     path = "/sign-out",
     responses(
         (status = 200, body = Message),
-        (status = 401),
-        SessionBackendError,
     )
 )]
 
@@ -128,8 +126,6 @@ async fn sign_out(
     ),
     responses(
         (status = 200, body = api_response::Message),
-        (status = 401),
-        UserImageError
     )
 )]
 async fn upload_avatar(
@@ -155,8 +151,6 @@ async fn upload_avatar(
     ),
     responses(
         (status = 200, body = api_response::Message),
-        (status = 401),
-        UserImageError
     )
 )]
 async fn upload_profile_banner(
@@ -179,9 +173,6 @@ async fn upload_profile_banner(
     request_body(content = String, content_type = "text/plain"),
     responses(
         (status = 200, body = api_response::Message),
-        (status = 401),
-        markdown::Error,
-        Error
     )
 )]
 async fn update_bio(

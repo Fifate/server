@@ -38,6 +38,20 @@
             hash = "sha256-enqEsI0TSazVpIP9Awt/ZWjbxE6j1zzccggLF4SF358=";
           };
         };
+
+        schemathesis = pkgs.buildFHSEnv {
+          name = "schemathesis";
+          targetPkgs =
+            pkgs': with pkgs'; [
+              python3
+              uv
+            ];
+          runScript = pkgs.writeShellScript "schemathesis-fhs" ''
+            export UV_NO_MANAGED_PYTHON=1
+            exec uvx schemathesis "$@"
+          '';
+        };
+
       in
       {
         devShell = pkgs.mkShell {
@@ -54,11 +68,13 @@
             mold
             openssl
             pkg-config
+            schemathesis
           ];
           packages = with pkgs; [
             rusty-hook
             dprint
             just
+            sea-orm-cli
           ];
         };
       }
