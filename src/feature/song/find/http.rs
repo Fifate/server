@@ -5,10 +5,11 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::SongFilter;
+use super::{PaginationQuery, SongFilter};
 use crate::adapter::inbound::rest::api_response::Data;
 use crate::adapter::inbound::rest::state::{self, ArcAppState};
 use crate::adapter::inbound::rest::{AppRouter, data};
+use crate::domain::shared::Paginated;
 use crate::domain::song::Song;
 use crate::infra::error::Error;
 
@@ -19,16 +20,16 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
         .with_public(|r| {
             r.routes(routes!(find_song_by_id))
                 .routes(routes!(find_song_by_keyword))
-                .routes(routes!(find_song_by_filter))
+                .routes(routes!(explore_song))
         })
         .finish()
 }
 
- data! {
-     DataOptionSong, Option<Song>
-     DataVecSong, Vec<Song>
- }
-
+data! {
+    DataOptionSong, Option<Song>
+    DataVecSong, Vec<Song>
+    DataPaginatedSong, Paginated<Song>
+}
 
 #[utoipa::path(
     get,
@@ -71,20 +72,21 @@ async fn find_song_by_keyword(
 #[utoipa::path(
     get,
     tag = TAG,
-    path = "/song/filter",
-    params(SongFilter),
+    path = "/song/explore",
+    params(SongFilter, PaginationQuery),
     responses(
-        (status = 200, body = DataVecSong),
+        (status = 200, body = DataPaginatedSong),
         Error
     ),
 )]
-async fn find_song_by_filter(
+async fn explore_song(
     State(repo): State<state::SeaOrmRepository>,
-    Query(query): Query<SongFilter>,
-) -> Result<Data<Vec<Song>>, Error> {
-    let normalized = query.with_sort_defaults();
-    tracing::info!(?normalized, "find_song_by_filter: incoming query");
-    super::repo::find_by_filter(&repo, normalized)
+    Query(filter): Query<SongFilter>,
+    Query(pagination): Query<PaginationQuery>,
+) -> Result<Data<Paginated<Song>>, Error> {
+    let normalized = filter.with_sort_defaults();
+    tracing::info!(?normalized, "explore_song: incoming query");
+    super::repo::find_by_filter(&repo, normalized, pagination)
         .await
         .bimap_into()
 }

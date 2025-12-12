@@ -13,12 +13,7 @@ use sea_orm::{
 use crate::constant::ADMIN_USERNAME;
 use crate::domain::auth::hash_password;
 use crate::domain::model::UserRoleEnum;
-
-#[derive(Clone, Copy)]
-pub enum CorrectionSortField {
-    CreatedAt,
-    HandledAt,
-}
+use crate::shared::http::CorrectionSortField;
 
 pub async fn correction_sorted_entity_ids(
     db: &impl ConnectionTrait,
@@ -107,4 +102,27 @@ pub async fn upsert_admin_acc(db: &DatabaseConnection) {
     }
     .await
     .expect("Failed to upsert admin account");
+}
+
+pub fn sort_by_id_list<T>(
+    mut items: Vec<T>,
+    id_order: &[i32],
+    get_id: impl Fn(&T) -> i32,
+) -> Vec<T> {
+    use std::collections::HashMap;
+
+    let id_to_index: HashMap<i32, usize> = id_order
+        .iter()
+        .enumerate()
+        .map(|(index, &id)| (id, index))
+        .collect();
+
+    items.sort_by_key(|item| {
+        id_to_index
+            .get(&get_id(item))
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
+
+    items
 }

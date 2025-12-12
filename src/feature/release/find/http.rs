@@ -1,4 +1,3 @@
-use axum::extract::{Path, State};
 use axum::extract::{Path, Query, State};
 use libfp::BifunctorExt;
 use serde::Deserialize;
@@ -6,12 +5,13 @@ use utoipa::IntoParams;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::ReleaseFilter;
 use super::repo::{self, Filter};
+use super::{PaginationQuery, ReleaseFilter};
 use crate::adapter::inbound::rest::api_response::Data;
 use crate::adapter::inbound::rest::state::{self, ArcAppState};
 use crate::adapter::inbound::rest::{AppRouter, data};
 use crate::domain::release::Release;
+use crate::domain::shared::Paginated;
 use crate::infra::error::Error;
 
 const TAG: &str = "Release";
@@ -19,6 +19,7 @@ const TAG: &str = "Release";
 data!(
     DataOptionRelease, Option<Release>
     DataVecRelease, Vec<Release>
+    DataPaginatedRelease, Paginated<Release>
 );
 
 pub fn router() -> OpenApiRouter<ArcAppState> {
@@ -26,7 +27,7 @@ pub fn router() -> OpenApiRouter<ArcAppState> {
         .with_public(|r| {
             r.routes(routes!(find_release_by_id))
                 .routes(routes!(find_release_by_keyword))
-                .routes(routes!(find_release_by_filter))
+                .routes(routes!(explore_release))
         })
         .finish()
 }
@@ -72,20 +73,21 @@ async fn find_release_by_keyword(
 #[utoipa::path(
     get,
     tag = TAG,
-    path = "/release/filter",
-    params(ReleaseFilter),
+    path = "/release/explore",
+    params(ReleaseFilter, PaginationQuery),
     responses(
-        (status = 200, body = DataVecRelease),
+        (status = 200, body = DataPaginatedRelease),
         Error,
     ),
 )]
-async fn find_release_by_filter(
+async fn explore_release(
     State(repo): State<state::SeaOrmRepository>,
     Query(filter): Query<ReleaseFilter>,
-) -> Result<Data<Vec<Release>>, Error> {
-    let release_types = filter.release_types.unwrap_or_default();
-    repo::find_many(&repo, Filter::ReleaseTypes(release_types))
+    Query(pagination): Query<PaginationQuery>,
+) -> Result<Data<Paginated<Release>>, Error> {
+    let normalized = filter.with_sort_defaults();
+    tracing::info!(?normalized, "explore_release: incoming query");
+    repo::find_by_filter(&repo, normalized, pagination)
         .await
         .bimap_into()
 }
-

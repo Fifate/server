@@ -20,7 +20,7 @@ use sea_query::extension::postgres::PgBinOper::{
 use sea_query::{ExprTrait, Func};
 use tokio::try_join;
 
-use super::filter::{SongFilter, SortDirection, SortField};
+use super::filter::SongFilter;
 use crate::domain::Connection;
 use crate::domain::artist::SimpleArtist;
 use crate::domain::credit_role::CreditRoleRef;
@@ -30,6 +30,7 @@ use crate::domain::shared::Language;
 use crate::domain::song::{LocalizedTitle, Song, SongCredit};
 use crate::domain::song_lyrics::SongLyrics;
 use crate::infra::database::sea_orm::cache::LANGUAGE_CACHE;
+use crate::shared::http::{CorrectionSortField, SortDirection};
 
 pub(super) async fn find_by_id<R>(
     repo: &R,
@@ -72,27 +73,27 @@ where
 pub(super) async fn find_by_filter<R>(
     repo: &R,
     filter: SongFilter,
-) -> Result<Vec<Song>, DbErr>
+    pagination: crate::shared::http::PaginationQuery,
+) -> Result<crate::domain::shared::Paginated<Song>, DbErr>
 where
     R: Connection,
     R::Conn: ConnectionTrait,
 {
-    // 如果有排序参数，先查询Correction记录进行排序
-    if let Some(sort_field) = filter.sort_field {
-        if let Some(sort_direction) = filter.sort_direction {
-            return find_sorted_by_correction(
-                repo,
-                filter,
-                sort_field,
-                sort_direction,
-            )
-            .await;
-        }
+    if let (Some(sort_field), Some(sort_direction)) =
+        (filter.sort_field, filter.sort_direction)
+    {
+        return find_sorted_by_correction(
+            repo,
+            filter,
+            sort_field,
+            sort_direction,
+            pagination,
+        )
+        .await;
     }
 
-    // 如果没有排序参数，保持原有行为
     let select: Select<song::Entity> = filter.into_select();
-    find_many_impl(select, repo.conn()).await
+    find_many_paginated(select, repo.conn(), pagination).await
 }
 
 #[expect(clippy::too_many_lines)]
@@ -219,6 +220,36 @@ async fn find_many_impl(
         },
     )
     .collect())
+}
+
+async fn find_many_paginated(
+    select: sea_orm::Select<song::Entity>,
+    db: &impl ConnectionTrait,
+    pagination: crate::shared::http::PaginationQuery,
+) -> Result<crate::domain::shared::Paginated<Song>, sea_orm::DbErr> {
+    use sea_orm::QuerySelect;
+
+    let limit = pagination.limit();
+
+    let select = if let Some(cursor) = pagination.cursor {
+        select.filter(song::Column::Id.gt(cursor))
+    } else {
+        select
+    };
+
+    let select = select.limit(u64::from(limit) + 1);
+
+    let songs = find_many_impl(select, db).await?;
+
+    let has_next = songs.len() > limit as usize;
+    let items: Vec<Song> = songs.into_iter().take(limit as usize).collect();
+    let next_cursor = if has_next {
+        items.last().map(|s| s.id)
+    } else {
+        None
+    };
+
+    Ok(crate::domain::shared::Paginated { items, next_cursor })
 }
 
 async fn load_credit_roles(
@@ -353,39 +384,37 @@ fn build_song_lyrics(
         .collect()
 }
 
-/// 根据Correction记录排序查询歌曲
 async fn find_sorted_by_correction<R>(
     repo: &R,
     filter: SongFilter,
-    sort_field: SortField,
+    sort_field: CorrectionSortField,
     sort_direction: SortDirection,
-) -> Result<Vec<Song>, DbErr>
+    pagination: crate::shared::http::PaginationQuery,
+) -> Result<crate::domain::shared::Paginated<Song>, DbErr>
 where
     R: Connection,
     R::Conn: ConnectionTrait,
 {
     use entity::enums::EntityType;
 
-    let entity_ids = crate::infra::database::sea_orm::utils::correction_sorted_entity_ids(
-        repo.conn(),
-        EntityType::Song,
-        match sort_field {
-            SortField::CreatedAt => crate::infra::database::sea_orm::utils::CorrectionSortField::CreatedAt,
-            SortField::HandledAt => crate::infra::database::sea_orm::utils::CorrectionSortField::HandledAt,
-        },
-        match sort_direction {
-            SortDirection::Asc => sea_orm::Order::Asc,
-            SortDirection::Desc => sea_orm::Order::Desc,
-        },
-    ).await?;
+    let entity_ids =
+        crate::infra::database::sea_orm::utils::correction_sorted_entity_ids(
+            repo.conn(),
+            EntityType::Song,
+            sort_field,
+            match sort_direction {
+                SortDirection::Asc => sea_orm::Order::Asc,
+                SortDirection::Desc => sea_orm::Order::Desc,
+            },
+        )
+        .await?;
 
     if entity_ids.is_empty() {
-        return Ok(vec![]);
+        return Ok(crate::domain::shared::Paginated::nothing());
     }
 
-    // 根据排序后的entity_id列表查询歌曲
     let select = song::Entity::find()
-        .filter(song::Column::Id.is_in(entity_ids))
+        .filter(song::Column::Id.is_in(entity_ids.clone()))
         .apply_if(filter.language_ids.clone(), |query, language_ids| {
             let subquery = song_language::Entity::find()
                 .select_only()
@@ -401,7 +430,38 @@ where
             query.filter(Expr::exists(subquery.as_query().clone()))
         });
 
-    find_many_impl(select, repo.conn()).await
+    let mut songs = find_many_impl(select, repo.conn()).await?;
+
+    songs = crate::infra::database::sea_orm::utils::sort_by_id_list(
+        songs,
+        &entity_ids,
+        |song| song.id,
+    );
+
+    Ok(apply_pagination(songs, &pagination))
+}
+
+fn apply_pagination(
+    items: Vec<Song>,
+    pagination: &crate::shared::http::PaginationQuery,
+) -> crate::domain::shared::Paginated<Song> {
+    let limit = pagination.limit() as usize;
+
+    let items: Vec<Song> = if let Some(cursor) = pagination.cursor {
+        items.into_iter().filter(|s| s.id > cursor).collect()
+    } else {
+        items
+    };
+
+    let has_next = items.len() > limit;
+    let items: Vec<Song> = items.into_iter().take(limit).collect();
+    let next_cursor = if has_next {
+        items.last().map(|s| s.id)
+    } else {
+        None
+    };
+
+    crate::domain::shared::Paginated { items, next_cursor }
 }
 
 #[cfg(test)]

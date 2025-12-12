@@ -49,6 +49,145 @@ where
     find_many_impl(select, repo.conn()).await
 }
 
+pub(super) async fn find_by_filter<R>(
+    repo: &R,
+    filter: super::LabelFilter,
+    pagination: crate::shared::http::PaginationQuery,
+) -> Result<crate::domain::shared::Paginated<Label>, DbErr>
+where
+    R: Connection,
+    R::Conn: ConnectionTrait,
+{
+    if let (Some(sort_field), Some(sort_direction)) =
+        (filter.sort_field, filter.sort_direction)
+    {
+        return find_sorted_by_correction(
+            repo,
+            filter,
+            sort_field,
+            sort_direction,
+            pagination,
+        )
+        .await;
+    }
+
+    let select = filter.into_select();
+    find_many_paginated(select, repo.conn(), pagination).await
+}
+
+async fn find_sorted_by_correction<R>(
+    repo: &R,
+    filter: super::LabelFilter,
+    sort_field: crate::shared::http::CorrectionSortField,
+    sort_direction: crate::shared::http::SortDirection,
+    pagination: crate::shared::http::PaginationQuery,
+) -> Result<crate::domain::shared::Paginated<Label>, DbErr>
+where
+    R: Connection,
+    R::Conn: ConnectionTrait,
+{
+    use entity::enums::EntityType;
+
+    use crate::shared::http::SortDirection;
+
+    let entity_ids =
+        crate::infra::database::sea_orm::utils::correction_sorted_entity_ids(
+            repo.conn(),
+            EntityType::Label,
+            sort_field,
+            match sort_direction {
+                SortDirection::Asc => sea_orm::Order::Asc,
+                SortDirection::Desc => sea_orm::Order::Desc,
+            },
+        )
+        .await?;
+
+    if entity_ids.is_empty() {
+        return Ok(crate::domain::shared::Paginated::nothing());
+    }
+
+    let mut select = label::Entity::find()
+        .filter(label::Column::Id.is_in(entity_ids.clone()));
+
+    if let Some(founded_date_from) = filter.founded_date_from {
+        select =
+            select.filter(label::Column::FoundedDate.gte(founded_date_from));
+    }
+    if let Some(founded_date_to) = filter.founded_date_to {
+        select = select.filter(label::Column::FoundedDate.lte(founded_date_to));
+    }
+    if let Some(is_dissolved) = filter.is_dissolved {
+        if is_dissolved {
+            select = select.filter(label::Column::DissolvedDate.is_not_null());
+        } else {
+            select = select.filter(label::Column::DissolvedDate.is_null());
+        }
+    }
+
+    let mut labels = find_many_impl(select, repo.conn()).await?;
+
+    labels = crate::infra::database::sea_orm::utils::sort_by_id_list(
+        labels,
+        &entity_ids,
+        |label| label.id,
+    );
+
+    Ok(apply_pagination(labels, &pagination))
+}
+
+fn apply_pagination(
+    items: Vec<Label>,
+    pagination: &crate::shared::http::PaginationQuery,
+) -> crate::domain::shared::Paginated<Label> {
+    let limit = pagination.limit() as usize;
+
+    let items: Vec<Label> = if let Some(cursor) = pagination.cursor {
+        items.into_iter().filter(|l| l.id > cursor).collect()
+    } else {
+        items
+    };
+
+    let has_next = items.len() > limit;
+    let items: Vec<Label> = items.into_iter().take(limit).collect();
+    let next_cursor = if has_next {
+        items.last().map(|l| l.id)
+    } else {
+        None
+    };
+
+    crate::domain::shared::Paginated { items, next_cursor }
+}
+
+async fn find_many_paginated(
+    select: sea_orm::Select<label::Entity>,
+    db: &impl ConnectionTrait,
+    pagination: crate::shared::http::PaginationQuery,
+) -> Result<crate::domain::shared::Paginated<Label>, DbErr> {
+    use sea_orm::QuerySelect;
+
+    let limit = pagination.limit();
+
+    let select = if let Some(cursor) = pagination.cursor {
+        select.filter(label::Column::Id.gt(cursor))
+    } else {
+        select
+    };
+
+    let select = select.limit(u64::from(limit) + 1);
+
+    let labels = find_many_impl(select, db).await?;
+
+    let has_next = labels.len() > limit as usize;
+    let items: Vec<Label> = labels.into_iter().take(limit as usize).collect();
+    let next_cursor = if has_next {
+        items.last().map(|l| l.id)
+    } else {
+        None
+    };
+
+    Ok(crate::domain::shared::Paginated { items, next_cursor })
+}
+
 async fn find_many_impl(
     select: sea_orm::Select<label::Entity>,
     db: &impl ConnectionTrait,
