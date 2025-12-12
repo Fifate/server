@@ -5,7 +5,7 @@ use utoipa::IntoParams;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::repo::{self, Filter};
+use super::repo::{self, FindReleaseFilter};
 use super::{PaginationQuery, ReleaseFilter};
 use crate::adapter::inbound::rest::api_response::Data;
 use crate::adapter::inbound::rest::state::{self, ArcAppState};
@@ -44,7 +44,9 @@ async fn find_release_by_id(
     State(repo): State<state::SeaOrmRepository>,
     Path(id): Path<i32>,
 ) -> Result<Data<Option<Release>>, Error> {
-    repo::find_one(&repo, Filter::Id(id)).await.bimap_into()
+    repo::find_one(&repo, FindReleaseFilter::Id(id))
+        .await
+        .bimap_into()
 }
 
 #[derive(IntoParams, Deserialize)]
@@ -65,7 +67,7 @@ async fn find_release_by_keyword(
     State(repo): State<state::SeaOrmRepository>,
     Query(query): Query<KwQuery>,
 ) -> Result<Data<Vec<Release>>, Error> {
-    repo::find_many(&repo, Filter::Keyword(query.keyword))
+    repo::find_many(&repo, FindReleaseFilter::Keyword(query.keyword))
         .await
         .bimap_into()
 }

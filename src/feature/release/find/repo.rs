@@ -9,9 +9,10 @@ use sea_query::{ExprTrait, Func};
 use crate::domain::Connection;
 use crate::domain::release::Release;
 use crate::infra::database::sea_orm::release::impls::find_many_impl;
+use crate::infra::database::sea_orm::utils;
 
 #[derive(Clone, Debug)]
-pub enum Filter {
+pub enum FindReleaseFilter {
     Id(i32),
     Keyword(String),
     ReleaseTypes(Vec<entity::sea_orm_active_enums::ReleaseType>),
@@ -19,7 +20,7 @@ pub enum Filter {
 
 pub(crate) async fn find_one<R>(
     repo: &R,
-    filter: Filter,
+    filter: FindReleaseFilter,
 ) -> Result<Option<Release>, DbErr>
 where
     R: Connection,
@@ -32,7 +33,7 @@ where
 
 pub(crate) async fn find_many<R>(
     repo: &R,
-    filter: Filter,
+    filter: FindReleaseFilter,
 ) -> Result<Vec<Release>, DbErr>
 where
     R: Connection,
@@ -55,12 +56,12 @@ where
         .map(|count: u64| count > 0)
 }
 
-fn filter_into_select(filter: Filter) -> Select<release::Entity> {
+fn filter_into_select(filter: FindReleaseFilter) -> Select<release::Entity> {
     match filter {
-        Filter::Id(id) => {
+        FindReleaseFilter::Id(id) => {
             release::Entity::find().filter(release::Column::Id.eq(id))
         }
-        Filter::Keyword(keyword) => {
+        FindReleaseFilter::Keyword(keyword) => {
             let search_term = Func::lower(keyword);
             release::Entity::find()
                 .filter(
@@ -72,8 +73,10 @@ fn filter_into_select(filter: Filter) -> Select<release::Entity> {
                         .binary(PgBinOper::SimilarityDistance, search_term),
                 )
         }
-        Filter::ReleaseTypes(release_types) => release::Entity::find()
-            .filter(release::Column::ReleaseType.is_in(release_types)),
+        FindReleaseFilter::ReleaseTypes(release_types) => {
+            release::Entity::find()
+                .filter(release::Column::ReleaseType.is_in(release_types))
+        }
     }
 }
 
@@ -100,7 +103,14 @@ where
     }
 
     let select = filter.into_select();
-    find_many_paginated(select, repo.conn(), pagination).await
+    utils::find_many_paginated(
+        select,
+        pagination,
+        release::Column::Id,
+        |select| find_many_impl(select, repo.conn()),
+        |release: &Release| release.id,
+    )
+    .await
 }
 
 async fn find_sorted_by_correction<R>(
@@ -150,57 +160,7 @@ where
         |release| release.id,
     );
 
-    Ok(apply_pagination(releases, &pagination))
-}
-
-fn apply_pagination(
-    items: Vec<Release>,
-    pagination: &crate::shared::http::PaginationQuery,
-) -> crate::domain::shared::Paginated<Release> {
-    let limit = pagination.limit() as usize;
-
-    let items: Vec<Release> = if let Some(cursor) = pagination.cursor {
-        items.into_iter().filter(|r| r.id > cursor).collect()
-    } else {
-        items
-    };
-
-    let has_next = items.len() > limit;
-    let items: Vec<Release> = items.into_iter().take(limit).collect();
-    let next_cursor = if has_next {
-        items.last().map(|r| r.id)
-    } else {
-        None
-    };
-
-    crate::domain::shared::Paginated { items, next_cursor }
-}
-
-async fn find_many_paginated(
-    select: sea_orm::Select<release::Entity>,
-    db: &impl ConnectionTrait,
-    pagination: crate::shared::http::PaginationQuery,
-) -> Result<crate::domain::shared::Paginated<Release>, DbErr> {
-    let limit = pagination.limit();
-
-    let select = if let Some(cursor) = pagination.cursor {
-        select.filter(release::Column::Id.gt(cursor))
-    } else {
-        select
-    };
-
-    let select = select.limit(u64::from(limit) + 1);
-
-    let releases = find_many_impl(select, db).await?;
-
-    let has_next = releases.len() > limit as usize;
-    let items: Vec<Release> =
-        releases.into_iter().take(limit as usize).collect();
-    let next_cursor = if has_next {
-        items.last().map(|r| r.id)
-    } else {
-        None
-    };
-
-    Ok(crate::domain::shared::Paginated { items, next_cursor })
+    Ok(utils::paginate_by_id(releases, &pagination, |release| {
+        release.id
+    }))
 }

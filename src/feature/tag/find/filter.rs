@@ -26,12 +26,10 @@ pub struct TagFilter {
 
 impl TagFilter {
     pub const fn with_sort_defaults(mut self) -> Self {
-        if self.sort_field.is_none() {
-            self.sort_field = Some(CorrectionSortField::CreatedAt);
-        }
-        if self.sort_direction.is_none() {
-            self.sort_direction = Some(SortDirection::Desc);
-        }
+        crate::shared::http::apply_sort_defaults(
+            &mut self.sort_field,
+            &mut self.sort_direction,
+        );
         self
     }
 

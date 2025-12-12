@@ -10,6 +10,7 @@ use sea_query::{ExprTrait, Func};
 use crate::domain::Connection;
 use crate::domain::event::{AlternativeName, Event};
 use crate::domain::shared::{DateWithPrecision, Location};
+use crate::infra::database::sea_orm::utils;
 
 pub(super) async fn find_by_id<R>(
     repo: &R,
@@ -72,7 +73,14 @@ where
     }
 
     let select = filter.into_select();
-    find_many_paginated(select, repo.conn(), pagination).await
+    utils::find_many_paginated(
+        select,
+        pagination,
+        event::Column::Id,
+        |select| find_many_impl(select, repo.conn()),
+        |event: &Event| event.id,
+    )
+    .await
 }
 
 async fn find_sorted_by_correction<R>(
@@ -124,60 +132,7 @@ where
         |event| event.id,
     );
 
-    Ok(apply_pagination(events, &pagination))
-}
-
-fn apply_pagination(
-    items: Vec<Event>,
-    pagination: &crate::shared::http::PaginationQuery,
-) -> crate::domain::shared::Paginated<Event> {
-    let limit = pagination.limit() as usize;
-
-    let items: Vec<Event> = if let Some(cursor) = pagination.cursor {
-        items.into_iter().filter(|e| e.id > cursor).collect()
-    } else {
-        items
-    };
-
-    let has_next = items.len() > limit;
-    let items: Vec<Event> = items.into_iter().take(limit).collect();
-    let next_cursor = if has_next {
-        items.last().map(|e| e.id)
-    } else {
-        None
-    };
-
-    crate::domain::shared::Paginated { items, next_cursor }
-}
-
-async fn find_many_paginated(
-    select: sea_orm::Select<event::Entity>,
-    db: &impl ConnectionTrait,
-    pagination: crate::shared::http::PaginationQuery,
-) -> Result<crate::domain::shared::Paginated<Event>, DbErr> {
-    use sea_orm::QuerySelect;
-
-    let limit = pagination.limit();
-
-    let select = if let Some(cursor) = pagination.cursor {
-        select.filter(event::Column::Id.gt(cursor))
-    } else {
-        select
-    };
-
-    let select = select.limit(u64::from(limit) + 1);
-
-    let events = find_many_impl(select, db).await?;
-
-    let has_next = events.len() > limit as usize;
-    let items: Vec<Event> = events.into_iter().take(limit as usize).collect();
-    let next_cursor = if has_next {
-        items.last().map(|e| e.id)
-    } else {
-        None
-    };
-
-    Ok(crate::domain::shared::Paginated { items, next_cursor })
+    Ok(utils::paginate_by_id(events, &pagination, |event| event.id))
 }
 
 async fn find_many_impl(

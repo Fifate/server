@@ -9,10 +9,9 @@ use entity::{
 };
 use itertools::{Itertools, izip};
 use libfp::FunctorExt;
-use sea_orm::prelude::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, LoaderTrait,
-    QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationTrait, Select,
+    QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select,
 };
 use sea_query::extension::postgres::PgBinOper::{
     Similarity, SimilarityDistance,
@@ -30,6 +29,7 @@ use crate::domain::shared::Language;
 use crate::domain::song::{LocalizedTitle, Song, SongCredit};
 use crate::domain::song_lyrics::SongLyrics;
 use crate::infra::database::sea_orm::cache::LANGUAGE_CACHE;
+use crate::infra::database::sea_orm::utils;
 use crate::shared::http::{CorrectionSortField, SortDirection};
 
 pub(super) async fn find_by_id<R>(
@@ -93,7 +93,14 @@ where
     }
 
     let select: Select<song::Entity> = filter.into_select();
-    find_many_paginated(select, repo.conn(), pagination).await
+    utils::find_many_paginated(
+        select,
+        pagination,
+        song::Column::Id,
+        |select| find_many_impl(select, repo.conn()),
+        |song: &Song| song.id,
+    )
+    .await
 }
 
 #[expect(clippy::too_many_lines)]
@@ -220,36 +227,6 @@ async fn find_many_impl(
         },
     )
     .collect())
-}
-
-async fn find_many_paginated(
-    select: sea_orm::Select<song::Entity>,
-    db: &impl ConnectionTrait,
-    pagination: crate::shared::http::PaginationQuery,
-) -> Result<crate::domain::shared::Paginated<Song>, sea_orm::DbErr> {
-    use sea_orm::QuerySelect;
-
-    let limit = pagination.limit();
-
-    let select = if let Some(cursor) = pagination.cursor {
-        select.filter(song::Column::Id.gt(cursor))
-    } else {
-        select
-    };
-
-    let select = select.limit(u64::from(limit) + 1);
-
-    let songs = find_many_impl(select, db).await?;
-
-    let has_next = songs.len() > limit as usize;
-    let items: Vec<Song> = songs.into_iter().take(limit as usize).collect();
-    let next_cursor = if has_next {
-        items.last().map(|s| s.id)
-    } else {
-        None
-    };
-
-    Ok(crate::domain::shared::Paginated { items, next_cursor })
 }
 
 async fn load_credit_roles(
@@ -413,22 +390,9 @@ where
         return Ok(crate::domain::shared::Paginated::nothing());
     }
 
-    let select = song::Entity::find()
-        .filter(song::Column::Id.is_in(entity_ids.clone()))
-        .apply_if(filter.language_ids.clone(), |query, language_ids| {
-            let subquery = song_language::Entity::find()
-                .select_only()
-                .expr(1)
-                .filter(Expr::eq(
-                    Expr::col((
-                        song_language::Entity,
-                        song_language::Column::SongId,
-                    )),
-                    Expr::col((song::Entity, song::Column::Id)),
-                ))
-                .filter(song_language::Column::LanguageId.is_in(language_ids));
-            query.filter(Expr::exists(subquery.as_query().clone()))
-        });
+    let select = filter
+        .into_select()
+        .filter(song::Column::Id.is_in(entity_ids.clone()));
 
     let mut songs = find_many_impl(select, repo.conn()).await?;
 
@@ -438,30 +402,7 @@ where
         |song| song.id,
     );
 
-    Ok(apply_pagination(songs, &pagination))
-}
-
-fn apply_pagination(
-    items: Vec<Song>,
-    pagination: &crate::shared::http::PaginationQuery,
-) -> crate::domain::shared::Paginated<Song> {
-    let limit = pagination.limit() as usize;
-
-    let items: Vec<Song> = if let Some(cursor) = pagination.cursor {
-        items.into_iter().filter(|s| s.id > cursor).collect()
-    } else {
-        items
-    };
-
-    let has_next = items.len() > limit;
-    let items: Vec<Song> = items.into_iter().take(limit).collect();
-    let next_cursor = if has_next {
-        items.last().map(|s| s.id)
-    } else {
-        None
-    };
-
-    crate::domain::shared::Paginated { items, next_cursor }
+    Ok(utils::paginate_by_id(songs, &pagination, |song| song.id))
 }
 
 #[cfg(test)]

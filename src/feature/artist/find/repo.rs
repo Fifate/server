@@ -20,6 +20,7 @@ use crate::domain::Connection;
 use crate::domain::artist::{Artist, Membership, Tenure};
 use crate::domain::credit_role::CreditRoleRef;
 use crate::domain::shared::{LocalizedName, Location};
+use crate::infra::database::sea_orm::utils;
 
 pub(super) async fn find_one<R>(
     repo: &R,
@@ -303,7 +304,14 @@ where
     }
 
     let select = filter.into_select();
-    find_many_paginated(select, repo.conn(), pagination).await
+    utils::find_many_paginated(
+        select,
+        pagination,
+        artist::Column::Id,
+        |select| find_many_impl(select, repo.conn()),
+        |artist: &Artist| artist.id,
+    )
+    .await
 }
 
 async fn find_sorted_by_correction<R>(
@@ -352,58 +360,7 @@ where
         |artist| artist.id,
     );
 
-    Ok(apply_pagination(artists, &pagination))
-}
-
-fn apply_pagination(
-    items: Vec<Artist>,
-    pagination: &crate::shared::http::PaginationQuery,
-) -> crate::domain::shared::Paginated<Artist> {
-    let limit = pagination.limit() as usize;
-
-    let items: Vec<Artist> = if let Some(cursor) = pagination.cursor {
-        items.into_iter().filter(|a| a.id > cursor).collect()
-    } else {
-        items
-    };
-
-    let has_next = items.len() > limit;
-    let items: Vec<Artist> = items.into_iter().take(limit).collect();
-    let next_cursor = if has_next {
-        items.last().map(|a| a.id)
-    } else {
-        None
-    };
-
-    crate::domain::shared::Paginated { items, next_cursor }
-}
-
-async fn find_many_paginated(
-    select: sea_orm::Select<artist::Entity>,
-    db: &impl ConnectionTrait,
-    pagination: crate::shared::http::PaginationQuery,
-) -> Result<crate::domain::shared::Paginated<Artist>, DbErr> {
-    use sea_orm::QuerySelect;
-
-    let limit = pagination.limit();
-
-    let select = if let Some(cursor) = pagination.cursor {
-        select.filter(artist::Column::Id.gt(cursor))
-    } else {
-        select
-    };
-
-    let select = select.limit(u64::from(limit) + 1);
-
-    let artists = find_many_impl(select, db).await?;
-
-    let has_next = artists.len() > limit as usize;
-    let items: Vec<Artist> = artists.into_iter().take(limit as usize).collect();
-    let next_cursor = if has_next {
-        items.last().map(|a| a.id)
-    } else {
-        None
-    };
-
-    Ok(crate::domain::shared::Paginated { items, next_cursor })
+    Ok(utils::paginate_by_id(artists, &pagination, |artist| {
+        artist.id
+    }))
 }
